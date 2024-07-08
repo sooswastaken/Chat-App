@@ -1,12 +1,15 @@
-from sanic import Sanic, response
-from sanic.request import Request
-from tortoise import Tortoise
+import asyncio
+import json
+
+from sanic import Sanic, response, Websocket
 from tortoise.contrib.sanic import register_tortoise
 import bcrypt
 from models import User, Channel, ChannelType, ChannelMember, Message
 import uuid
+from sanic_cors import CORS
 
 app = Sanic("ChatApp")
+CORS(app)
 
 
 async def check_user_exists(username: str) -> bool:
@@ -40,7 +43,7 @@ async def user_has_access_to_channel(user_id: int, channel_id: int) -> bool:
 async def init_db():
     # Ensure at least one public chat exists
     if not await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).exists():
-        await Channel.create(type=ChannelType.PUBLIC_CHAT)
+        await Channel.create(type=ChannelType.PUBLIC_CHAT, id=uuid.uuid4().int % (2 ** 63 - 1))
         print("Public chat channel created.")
     else:
         print("Public chat channel already exists.")
@@ -69,16 +72,18 @@ async def index(request):
 async def sign_up(request):
     print(request.json)
     data = request.json
+    print(data)
     if not all(key in data for key in ('username', 'password', 'name')):
         return response.json({'state': 'missing-fields'}, status=400)
-    if await User.filter(username=data.username).exists():
+    if await User.filter(username=data["username"]).exists():
         return response.json({'state': 'user-already-exists'}, status=400)
-    data.password = hash_password(data.password)
-    user_obj = await User.create(id=uuid.uuid4(), **data)
+    data["password"] = hash_password(data["password"])
+    print(uuid.uuid4().int % (2 ** 63 - 1))
+    user_obj = await User.create(id=uuid.uuid4().int % (2 ** 63 - 1), **data)
     return response.json({'state': 'user-created', 'user_id': user_obj.id})
 
 
-@app.post('/login-in')
+@app.post('/login')
 async def login(request):
     username = request.json.get('username')
     password = request.json.get('password')
@@ -89,12 +94,20 @@ async def login(request):
     return response.json({'state': 'correct-credentials'})
 
 
-@app.post('/get-messages/<channel_id:int>')
+@app.post('/get-messages/<channel_id>')
 async def get_messages(request, channel_id):
     username = request.json.get('username')
     password = request.json.get('password')
     if not await verify_credentials(username, password):
         return response.json({'state': 'wrong-credentials'}, status=403)
+
+    if channel_id == "public-chat":
+        channel = await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).first()
+        messages = await Message.filter(channel=channel).order_by('created_at').prefetch_related('author',
+                                                                                                 'channel').all()
+        return response.json({'messages': [msg.json() for msg in messages]})
+    else:
+        channel_id = int(channel_id)
     if not await user_has_access_to_channel(username, channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
@@ -102,7 +115,7 @@ async def get_messages(request, channel_id):
     return response.json({'messages': [msg.to_dict() for msg in messages]})
 
 
-@app.post('/send-message/<channel_id:int>')
+@app.post('/send-message/<channel_id>')
 async def send_message(request, channel_id):
     username = request.json.get('username')
     password = request.json.get('password')
@@ -110,11 +123,107 @@ async def send_message(request, channel_id):
     if not await verify_credentials(username, password):
         return response.json({'state': 'wrong-credentials'}, status=403)
 
+    user = await User.filter(username=username).first()
+
+    if channel_id == "public-chat":
+        channel = await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).first()
+        message_obj = await Message.create(content=message_text, author_id=user.id, channel=channel,
+                                           id=uuid.uuid4().int % (2 ** 63 - 1))
+        # pre-fetch the author and channel to avoid additional queries
+        await message_obj.fetch_related('author', 'channel')
+
+        await broadcast_message(message_obj)
+        return response.json({'state': 'message-sent', 'message_id': message_obj.id})
+    else:
+        channel_id = int(channel_id)
+
     if not await user_has_access_to_channel(username, channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
     message_obj = await Message.create(content=message_text, author_id=username, channel_id=channel_id)
+    await broadcast_message(message_obj)
     return response.json({'state': 'message-sent', 'message_id': message_obj.id})
+
+
+async def broadcast_message(message: Message):
+    print("Broadcasting message")
+    for client in connected_clients:
+        if await user_has_access_to_channel(client.id, message.channel.id) and client.id != message.author.id:
+            data = message.json()
+            print(data)
+            data['state'] = 'new-message'
+            await client.send(json.dumps(data))
+
+
+connected_clients = set()
+
+typing_clients = set()
+
+
+@app.websocket("/ws")
+async def ws(request, client: Websocket):
+    client_credentials = {}
+    while True:
+        data = await client.recv()
+        # if the client_credentials is not set that means it is the first message
+        # if the user doesn't authenticate on first message, we will close the connection
+
+        if not client_credentials:
+            client_credentials = json.loads(data)
+            if not await verify_credentials(client_credentials['username'], client_credentials['password']):
+                await client.send('{"state": "wrong-credentials"}')
+                await client.close()
+                break
+            else:
+                # get client name
+                user = await User.filter(username=client_credentials['username']).first()
+                await client.send(json.dumps({'state': 'authenticated', 'user_id': user.id, "name": user.name}))
+                # set id of client in clients
+                user = await User.filter(username=client_credentials['username']).first()
+                client.id = user.id
+                client.name = user.name
+                connected_clients.add(client)
+
+        data = json.loads(data)
+
+        # user is typing
+        if data['type'] == 'typing':
+            for client in connected_clients:
+                if (await user_has_access_to_channel(client.id, data['channel_id'])
+                        or data['channel_id'] == 'public-chat'):
+                    data['state'] = 'typing'
+
+                    message = {'state': 'typing',
+                               'user_id': client.id,
+                               'channel_id': data['channel_id'],
+                               'name': client.name}
+
+                    typing_clients.add(client)
+
+                    await client.send(json.dumps(message))
+
+                    await asyncio.sleep(30)
+                    if client in typing_clients:
+                        await send_stop_typing_message(client.id, data['channel_id'], client.name)
+                        typing_clients.remove(client)
+
+        if data['type'] == 'stop-typing':
+            if client in typing_clients:
+                typing_clients.remove(client)
+
+            await send_stop_typing_message(client.id, data['channel_id'], client.name)
+
+
+async def send_stop_typing_message(user_id, channel_id, name):
+    for client in connected_clients:
+        if (await user_has_access_to_channel(client.id, channel_id)
+                or channel_id == 'public-chat'):
+            message = {'state': 'stop-typing',
+                       'user_id': user_id,
+                       'channel_id': channel_id,
+                       'name': name}
+
+            await client.send(json.dumps(message))
 
 
 register_tortoise(
@@ -125,4 +234,4 @@ register_tortoise(
 )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=0)

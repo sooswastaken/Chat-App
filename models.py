@@ -46,6 +46,16 @@ class Message(models.Model):
     channel = fields.ForeignKeyField('models.Channel', related_name='messages')
     created_at = fields.DatetimeField(auto_now_add=True)
 
+    def json(self):
+        return {
+            "id": self.id,
+            "content": self.content,
+            "author": self.author.id,
+            "author_name": self.author.name,
+            "channel": self.channel.id,
+            "created_at": int(self.created_at.timestamp())
+        }
+
     class Meta:
         table = "messages"
 

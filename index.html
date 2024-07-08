@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Public Chat</title>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        #messages { height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; visibility: hidden; }
+        #input { margin-top: 10px; visibility: hidden; }
+        #loginForm { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Public Chat</h1>
+    <div id="loginForm">
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <button onclick="signUp()">Sign Up</button>
+    </div>
+    <div id="messages"></div>
+    <div id="input">
+        <input type="text" id="messageInput" placeholder="Type a message...">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+    <script src="chat.js"></script>
+</body>
+</html>

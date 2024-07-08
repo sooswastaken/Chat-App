@@ -1,0 +1,15 @@
+curl -X POST http://localhost:8000/sign-up \
+-H "Content-Type: application/json" \
+-d '{"username": "john", "password": "securepass123", "name": "john doe"}'
+
+curl -X POST http://localhost:8000/login \
+-H "Content-Type: application/json" \
+-d '{"username": "john", "password": "securepass123"}'
+
+curl -X POST http://localhost:8000/send-message/public-chat \
+-H "Content-Type: application/json" \
+-d '{"username": "john", "password": "securepass123", "message": "hello world"}'
+
+curl -X POST http://localhost:8000/get-messages/public-chat \
+-H "Content-Type: application/json" \
+-d '{"username": "john", "password": "securepass123"}'
