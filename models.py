@@ -13,6 +13,13 @@ class User(models.Model):
     class Meta:
         table = "users"
 
+    def json(self):
+        return {
+            "id": self.id,
+            "username": self.username,
+            "name": self.name
+        }
+
 
 # Define an Enum for Channel Types
 class ChannelType(Enum):
@@ -23,12 +30,20 @@ class ChannelType(Enum):
 
 # Model Definition
 class Channel(models.Model):
+    name = fields.CharField(max_length=255)
     id = fields.IntField(pk=True)
     type = fields.CharEnumField(enum_type=ChannelType, default=ChannelType.PUBLIC_CHAT)
-    members = fields.ManyToManyField('models.User', related_name='channels', through='channel_members')
+    created_at = fields.DatetimeField(auto_now_add=True)
 
     class Meta:
         table = "channels"
+
+    def json(self):
+        return {
+            "id": self.id,
+            "type": self.type,
+            "created_at": int(self.created_at.timestamp())
+        }
 
 
 class ChannelMember(models.Model):
@@ -37,6 +52,13 @@ class ChannelMember(models.Model):
 
     class Meta:
         table = "channel_members"
+
+    def json(self):
+        return {
+            "user": self.user.id,
+            "channel_name": self.channel.name,
+            "channel": self.channel.id
+        }
 
 
 class Message(models.Model):

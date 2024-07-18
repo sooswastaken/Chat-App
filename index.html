@@ -4,25 +4,67 @@
     <meta charset="UTF-8">
     <title>Public Chat</title>
     <style>
-        body { font-family: Arial, sans-serif; }
-        #messages { height: 300px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; visibility: hidden; }
-        #input { margin-top: 10px; visibility: hidden; }
-        #loginForm { margin-top: 20px; }
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        #messages {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+
+        #input {
+            margin-top: 10px;
+        }
+
+        #app {
+            visibility: hidden;
+        }
+
+        #loginForm {
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
-    <h1>Public Chat</h1>
-    <div id="loginForm">
-        <input type="text" id="username" placeholder="Username">
-        <input type="password" id="password" placeholder="Password">
-        <button onclick="login()">Login</button>
-        <button onclick="signUp()">Sign Up</button>
+<h1>Chat App</h1>
+<div id="loginForm">
+    <input type="text" id="username" placeholder="Username">
+    <input type="password" id="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+    <button onclick="signUp()">Sign Up</button>
+</div>
+<div id="app">
+
+    <button onclick="showCreateGroupChatForm()">Create Group Chat</button>
+    <button onclick="showStartDMForm()">Start DM</button>
+    <br>
+    <br>
+    <div id="createGroupChatForm" style="display:none;">
+        <!-- Form to create group chat -->
+        <input type="text" id="gcName" placeholder="Group Chat Name">
+        <input type="text" id="gcMembers" placeholder="Member IDs (comma-separated)">
+        <button onclick="createGroupChat()">Create</button>
     </div>
+    <div id="startDMForm" style="display:none;">
+        <!-- Form to start a DM -->
+        <input type="text" id="dmUserId" placeholder="User ID">
+        <button onclick="startDM()">Start DM</button>
+    </div>
+    <h3>Available Channels:</h3>
+    <div id="channelList"></div>
+
+    <h2 id="channelName">Public Chat</h2>
     <div id="messages"></div>
     <div id="input">
         <input type="text" id="messageInput" placeholder="Type a message...">
         <button onclick="sendMessage()">Send</button>
     </div>
-    <script src="chat.js"></script>
+
+    <div id="userInfo"></div>
+</div>
+<script src="chat.js"></script>
 </body>
 </html>

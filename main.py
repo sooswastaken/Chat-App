@@ -12,7 +12,7 @@ app = Sanic("ChatApp")
 CORS(app)
 
 
-async def check_user_exists(username: str) -> bool:
+async def check_user_exists(username) -> bool:
     return await User.filter(username=username).exists()
 
 
@@ -25,7 +25,7 @@ async def verify_credentials(username: str, password: str) -> bool:
 
 async def user_has_access_to_channel(user_id: int, channel_id: int) -> bool:
     # Retrieve the channel type and members
-    channel = await Channel.filter(id=channel_id).prefetch_related("members").first()
+    channel = await Channel.filter(id=channel_id).first()
 
     if not channel:
         return False  # Channel not found
@@ -35,7 +35,7 @@ async def user_has_access_to_channel(user_id: int, channel_id: int) -> bool:
 
     if channel.type in (ChannelType.DM, ChannelType.GROUP_CHAT):
         # Check if user is in the list of members
-        return await ChannelMember.filter(user_id=user_id, channel_id=channel_id).exists()
+        return await ChannelMember.filter(user_id=user_id, channel=await Channel.filter(id=channel_id).first()).exists()
 
     return False
 
@@ -43,7 +43,7 @@ async def user_has_access_to_channel(user_id: int, channel_id: int) -> bool:
 async def init_db():
     # Ensure at least one public chat exists
     if not await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).exists():
-        await Channel.create(type=ChannelType.PUBLIC_CHAT, id=uuid.uuid4().int % (2 ** 63 - 1))
+        await Channel.create(name="Public Chat", type=ChannelType.PUBLIC_CHAT, id=uuid.uuid4().int % (2 ** 63 - 1))
         print("Public chat channel created.")
     else:
         print("Public chat channel already exists.")
@@ -65,7 +65,10 @@ def verify_password(password, hashed):
 
 @app.route("/")
 async def index(request):
-    return response.json({'state': 'running'})
+    return await response.file("index.html")
+
+
+app.static("/", "./")
 
 
 @app.post('/sign-up')
@@ -111,8 +114,134 @@ async def get_messages(request, channel_id):
     if not await user_has_access_to_channel(username, channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
-    messages = await Message.filter(channel_id=channel_id).order_by('created_at')
+    messages = await Message.filter(channel=await Channel.filter(id=channel_id).first()).order_by('created_at')
     return response.json({'messages': [msg.to_dict() for msg in messages]})
+
+
+@app.post('/get-channels')
+async def get_channels(request):
+    # returns channels that the user is a member of
+    username = request.json.get('username')
+    password = request.json.get('password')
+    if not await verify_credentials(username, password):
+        return response.json({'state': 'wrong-credentials'}, status=403)
+
+    user = await User.filter(username=username).first()
+    channels = await ChannelMember.filter(user=user).prefetch_related('channel').all()
+    # pre-fetch the members to avoid additional queries
+    for channel in channels:
+        await channel.fetch_related('members')
+    return response.json({'channels': [channel.json() for channel in channels]})
+
+
+@app.post('/create-channel')
+async def create_channel(request):
+    username = request.json.get('username')
+    password = request.json.get('password')
+    channel_name = request.json.get('channel_name')
+
+    member_ids = request.json.get('members')
+    print("Member ids", member_ids)
+    if not await verify_credentials(username, password):
+        return response.json({'state': 'wrong-credentials'}, status=403)
+
+    if not member_ids:
+        return response.json({'state': 'no-members'}, status=400)
+
+    for member_id in member_ids:
+        user = await User.filter(id=int(member_id)).first()
+        if not user:
+            # print list of all user ids
+            print("User not found", member_id)
+            print(await User.all())
+            return response.json({'state': 'contains-invalid-user'}, status=400)
+
+
+    user = await User.filter(username=username).first()
+
+    channel = await Channel.create(name=channel_name, type=ChannelType.GROUP_CHAT.value,
+                                   id=uuid.uuid4().int % (2 ** 63 - 1))
+    await ChannelMember.create(user=user, channel=channel)
+    for member_id in member_ids:
+        user = await User.filter(id=member_id).first()
+        await ChannelMember.create(user=user, channel=channel)
+
+    return response.json({'state': 'channel-created', 'channel_id': channel.id})
+
+
+@app.route('/start-dm/<user_id>')
+async def start_dm(request, user_id):
+    username = request.json.get('username')
+    password = request.json.get('password')
+    if not await verify_credentials(username, password):
+        return response.json({'state': 'wrong-credentials'}, status=403)
+
+    user = await User.filter(username=username).first()
+    if not user:
+        return response.json({'state': 'user-not-found'}, status=404)
+
+    other_user = await User.filter(id=user_id).first()
+    if not other_user:
+        return response.json({'state': 'other-user-not-found'}, status=404)
+
+    # Check if a DM channel already exists between the two users
+    channel = await Channel.filter(type=ChannelType.DM.value).filter(
+        members__user=user).filter(members__user=other_user).first()
+
+    if not channel:
+        channel = await Channel.create(type=ChannelType.DM.value)
+        await ChannelMember.create(user=user, channel=channel)
+        await ChannelMember.create(user=other_user, channel=channel)
+
+    return response.json({'state': 'dm-started', 'channel_id': channel.id})
+
+
+# edit channel
+@app.post('/edit-channel/<channel_id>')
+async def edit_channel(request, channel_id):
+    username = request.json.get('username')
+    password = request.json.get('password')
+
+    if not await verify_credentials(username, password):
+        return response.json({'state': 'wrong-credentials'}, status=403)
+
+    channel = await Channel.filter(id=channel_id).first()
+    if not channel:
+        return response.json({'state': 'channel-not-found'}, status=404)
+
+    if not await user_has_access_to_channel(username, channel_id):
+        return response.json({'state': 'no-access'}, status=403)
+
+    channel_name = request.json.get('channel_name')
+    member_ids = request.json.get('members')
+
+    if channel_name:
+        channel.name = channel_name
+        await channel.save()
+
+    if member_ids:
+        for member_id in member_ids:
+            user = await User.filter(id=member_id).first()
+            if not user:
+                return response.json({'state': 'contains-invalid-user'}, status=400)
+
+        # get all current members
+        current_members = await ChannelMember.filter(channel=channel).all()
+        current_member_ids = [member.user.id for member in current_members]
+
+        # remove members that are not in the new list
+        for member in current_members:
+            if member.user.id not in member_ids:
+                await member.delete()
+
+        # add new members
+
+        for member_id in member_ids:
+            if member_id not in current_member_ids:
+                user = await User.filter(id=member_id).first()
+                await ChannelMember.create(user=user, channel=channel)
+
+    return response.json({'state': 'channel-edited', 'channel_id': channel.id})
 
 
 @app.post('/send-message/<channel_id>')
@@ -140,7 +269,8 @@ async def send_message(request, channel_id):
     if not await user_has_access_to_channel(username, channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
-    message_obj = await Message.create(content=message_text, author_id=username, channel_id=channel_id)
+    message_obj = await Message.create(content=message_text, author_id=username,
+                                       channel=await Channel.filter(id=channel_id).first())
     await broadcast_message(message_obj)
     return response.json({'state': 'message-sent', 'message_id': message_obj.id})
 
@@ -156,8 +286,6 @@ async def broadcast_message(message: Message):
 
 
 connected_clients = set()
-
-typing_clients = set()
 
 
 @app.websocket("/ws")
@@ -183,47 +311,6 @@ async def ws(request, client: Websocket):
                 client.id = user.id
                 client.name = user.name
                 connected_clients.add(client)
-
-        data = json.loads(data)
-
-        # user is typing
-        if data['type'] == 'typing':
-            for client in connected_clients:
-                if (await user_has_access_to_channel(client.id, data['channel_id'])
-                        or data['channel_id'] == 'public-chat'):
-                    data['state'] = 'typing'
-
-                    message = {'state': 'typing',
-                               'user_id': client.id,
-                               'channel_id': data['channel_id'],
-                               'name': client.name}
-
-                    typing_clients.add(client)
-
-                    await client.send(json.dumps(message))
-
-                    await asyncio.sleep(30)
-                    if client in typing_clients:
-                        await send_stop_typing_message(client.id, data['channel_id'], client.name)
-                        typing_clients.remove(client)
-
-        if data['type'] == 'stop-typing':
-            if client in typing_clients:
-                typing_clients.remove(client)
-
-            await send_stop_typing_message(client.id, data['channel_id'], client.name)
-
-
-async def send_stop_typing_message(user_id, channel_id, name):
-    for client in connected_clients:
-        if (await user_has_access_to_channel(client.id, channel_id)
-                or channel_id == 'public-chat'):
-            message = {'state': 'stop-typing',
-                       'user_id': user_id,
-                       'channel_id': channel_id,
-                       'name': name}
-
-            await client.send(json.dumps(message))
 
 
 register_tortoise(
