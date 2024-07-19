@@ -40,6 +40,7 @@ class Channel(models.Model):
 
     def json(self):
         return {
+            "name": self.name,
             "id": self.id,
             "type": self.type,
             "created_at": int(self.created_at.timestamp())

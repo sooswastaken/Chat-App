@@ -66,7 +66,7 @@ def create_id():
 async def init_db():
     # Ensure at least one public chat exists
     if not await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).exists():
-        await Channel.create(name="Public Chat", type=ChannelType.PUBLIC_CHAT, id=create_id())
+        await Channel.create(name="Public Chat", type=ChannelType.PUBLIC_CHAT, id="public-chat")
         print("Public chat channel created.")
     else:
         print("Public chat channel already exists.")
@@ -133,7 +133,12 @@ async def get_messages(request, channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
     messages = await Message.filter(channel=await Channel.filter(id=channel_id).first()).order_by('created_at')
-    return response.json({'messages': [msg.to_dict() for msg in messages]})
+    # PRE FETCH THE AUTHOR AND CHANNEL TO AVOID ADDITIONAL QUERIES
+    msgs = []
+    for msg in messages:
+        await msg.fetch_related('author', 'channel')
+        msgs.append(msg.json())
+    return response.json({'messages': msgs})
 
 
 @app.post('/get-channels')
@@ -185,6 +190,8 @@ async def create_channel(request):
     for member_id in member_ids:
         user = await User.filter(id=member_id).first()
         await ChannelMember.create(user=user, channel=channel)
+
+    await broadcast_channel_create(channel.id)
 
     return response.json({'state': 'channel-created', 'channel_id': channel.id})
 
@@ -276,7 +283,7 @@ async def send_message(request, channel_id):
 
     if channel_id == "public-chat":
         channel = await Channel.filter(type=ChannelType.PUBLIC_CHAT.value).first()
-        message_obj = await Message.create(content=message_text, author_id=user.id, channel=channel,
+        message_obj = await Message.create(content=message_text, author=user, channel=channel,
                                            id=create_id())
         # pre-fetch the author and channel to avoid additional queries
         await message_obj.fetch_related('author', 'channel')
@@ -289,7 +296,7 @@ async def send_message(request, channel_id):
     if not await user_has_access_to_channel(await get_user_id(username), channel_id):
         return response.json({'state': 'no-access'}, status=403)
 
-    message_obj = await Message.create(content=message_text, author_id=username,
+    message_obj = await Message.create(content=message_text, author=user,
                                        channel=await Channel.filter(id=channel_id).first(), id=create_id())
     await broadcast_message(message_obj)
     return response.json({'state': 'message-sent', 'message_id': message_obj.id})
@@ -303,6 +310,11 @@ async def broadcast_message(message: Message):
             data['state'] = 'new-message'
             await client.send(json.dumps(data))
 
+
+async def broadcast_channel_create(channel_id):
+    for client in connected_clients:
+        if await user_has_access_to_channel(client.id, channel_id):
+            return await client.send(json.dumps({'state': 'new-channel'}))
 
 connected_clients = set()
 
@@ -341,4 +353,4 @@ register_tortoise(
 )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=0)
+    app.run(host='0.0.0.0', port=8000, debug=True)

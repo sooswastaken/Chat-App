@@ -23,6 +23,7 @@ async function fetchChannels() {
         // add public chat
         const publicChat = document.createElement('button');
         publicChat.textContent = "Public Chat";
+        publicChat.dataset.channelId = "public-chat"; // Using data attribute
         publicChat.onclick = () => switchChannel("public-chat");
         channelList.appendChild(publicChat);
         // disable public chat button
@@ -30,33 +31,30 @@ async function fetchChannels() {
             publicChat.disabled = true;
         }
 
-        // add br
-        const br = document.createElement('br');
-        channelList.appendChild(br);
-        const br2 = document.createElement('br');
-        channelList.appendChild(br2);
-
+        // add breaks for spacing
+        channelList.appendChild(document.createElement('br'));
+        channelList.appendChild(document.createElement('br'));
 
         data.channels.forEach(channel => {
-            const div = document.createElement('button')
-            div.textContent = channel.channel_name;
-            div.onclick = () => switchChannel(channel.channel_id, channel.channel_name);
-            channelList.appendChild(div);
-            // add br
-            let br = document.createElement('br');
-            channelList.appendChild(br);
-            let br2 = document.createElement('br');
-            channelList.appendChild(br2);
+            const button = document.createElement('button')
+            button.textContent = channel.channel_name;
+            button.dataset.channelId = channel.channel_id; // Using data attribute
+            button.onclick = () => switchChannel(channel.channel_id, channel.channel_name);
+            channelList.appendChild(button);
+            // add breaks for spacing
+            channelList.appendChild(document.createElement('br'));
+            channelList.appendChild(document.createElement('br'));
         });
     }
 }
 
+
 function switchChannel(channelId, channelName) {
-    // enable button for current channel
+    // enable button for previous channel
     const buttons = document.getElementsByTagName('button');
     for (let i = 0; i < buttons.length; i++) {
-        if (buttons[i].textContent === channelName) {
-            buttons[i].disabled = false;
+        if (buttons[i].dataset.channelId === currentChannelId) {
+            buttons[i].disabled = false; // Enable based on data attribute
         }
     }
 
@@ -69,16 +67,16 @@ function switchChannel(channelId, channelName) {
     });
 
     // disable button for current channel
-
     for (let i = 0; i < buttons.length; i++) {
-        if (buttons[i].textContent === currentChannelId) {
-            buttons[i].disabled = true;
+        if (buttons[i].dataset.channelId === channelId) {
+            buttons[i].disabled = true; // Disable based on data attribute
         }
     }
 
     // change channelName label
     document.getElementById('channelName').textContent = channelName;
 }
+
 
 
 async function fetchAndClearMessages() {
@@ -281,11 +279,15 @@ function initializeWebSocket() {
             id.textContent = `ID: ${userCredentials.id}`;
             userInfo.appendChild(id);
         } else if (data.state === "new-message") {
+            console.log("New message received:", data);
+            console.log("Current channel ID:", currentChannelId);
             // check if its the current channel
-            // if (data.channel_id === currentChannelId) {
+            if (data.channel_id === currentChannelId) {
                 displayMessage(data);
-            // }
+            }
             // could add logic for unread messages
+        } else if (data.state === "new-channel") {
+            fetchChannels();
         }
     };
 
