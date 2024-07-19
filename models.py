@@ -5,7 +5,7 @@ from tortoise.contrib.pydantic import pydantic_model_creator
 
 
 class User(models.Model):
-    id = fields.IntField(pk=True)
+    id = fields.CharField(pk=True, unique=True, max_length=255)
     username = fields.CharField(max_length=255, unique=True)
     password = fields.CharField(max_length=255)  # Consider hashing passwords in practice
     name = fields.CharField(max_length=255)
@@ -31,7 +31,7 @@ class ChannelType(Enum):
 # Model Definition
 class Channel(models.Model):
     name = fields.CharField(max_length=255)
-    id = fields.IntField(pk=True)
+    id = fields.CharField(pk=True, unique=True, max_length=255)
     type = fields.CharEnumField(enum_type=ChannelType, default=ChannelType.PUBLIC_CHAT)
     created_at = fields.DatetimeField(auto_now_add=True)
 
@@ -57,12 +57,12 @@ class ChannelMember(models.Model):
         return {
             "user": self.user.id,
             "channel_name": self.channel.name,
-            "channel": self.channel.id
+            "channel_id": self.channel.id
         }
 
 
 class Message(models.Model):
-    id = fields.IntField(pk=True)
+    id = fields.CharField(pk=True, unique=True, max_length=255)
     content = fields.TextField()
     author = fields.ForeignKeyField('models.User', related_name='messages')
     channel = fields.ForeignKeyField('models.Channel', related_name='messages')
@@ -74,7 +74,7 @@ class Message(models.Model):
             "content": self.content,
             "author": self.author.id,
             "author_name": self.author.name,
-            "channel": self.channel.id,
+            "channel_id": self.channel.id,
             "created_at": int(self.created_at.timestamp())
         }
 
