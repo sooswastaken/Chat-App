@@ -11,7 +11,6 @@ from sanic_cors import CORS
 app = Sanic("ChatApp")
 CORS(app)
 
-
 async def check_user_exists(username) -> bool:
     return await User.filter(username=username).exists()
 
