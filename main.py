@@ -11,6 +11,7 @@ from sanic_cors import CORS
 app = Sanic("ChatApp")
 CORS(app)
 
+
 async def check_user_exists(username) -> bool:
     return await User.filter(username=username).exists()
 
@@ -335,7 +336,8 @@ async def ws(request, client: Websocket):
             else:
                 # get client name
                 user = await User.filter(username=client_credentials['username']).first()
-                dictyionary = {'state': 'authenticated', 'user_id': user.id, "name": user.name}
+                dictyionary = {'state': 'authenticated',
+                               'user_id': user.id, "name": user.name}
                 await client.send(json.dumps({'state': 'authenticated', 'user_id': user.id, "name": user.name}))
                 # set id of client in clients
                 user = await User.filter(username=client_credentials['username']).first()

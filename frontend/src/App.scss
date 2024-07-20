@@ -1,0 +1,49 @@
+* {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  color: rgb(198, 198, 198);
+  font-family: "Roboto", sans-serif;
+  background: #1b1b1b;
+}
+
+#login-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  width: 50vw;
+  padding: 20px;
+  border-radius: 10px;
+
+
+  .buttons {
+    // add margin to sides
+
+
+    padding: 1em;
+    // span whole width
+    width: 100%;
+    
+    // background: white;
+    // center buttons
+    display: flex;
+    justify-content: space-evenly;
+  }
+
+}
+
+
+.mui-button {
+    background-color: #0059ad !important;
+    color: white !important;
+    transform: scale(1.2);
+}
